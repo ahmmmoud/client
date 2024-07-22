@@ -1,11 +1,17 @@
 import tkinter as tk
-from tkinter import font as tkfont
-import cv2
+from tkinter import font as tkfont, filedialog, messagebox
 from PIL import Image, ImageTk
+import cv2
 import numpy as np
+import os
 
+import try_on
+
+Path_Images_Folder = './my_wardrobe'
 
 class CameraApp:
+    received_image = False
+    frame_counter = 0
     def __init__(self, root):
         self.root = root
         self.root.title("Camera Background UI")
@@ -42,8 +48,8 @@ class CameraApp:
 
         # Add buttons with improved design
         self.buttons = {
-            "Mirror Try On": self.button_action,
-            "My Wardrobe": self.button_action,
+            "Mirror Try On": self.show_try_on,
+            "My Wardrobe": self.show_image_list,
             "Fashionista": self.button_action,
             "Shop": self.button_action,
             "Imagine": self.button_action,
@@ -77,20 +83,36 @@ class CameraApp:
             self.button_widgets[text] = button
 
     def update_video(self):
-        ret, frame = self.vid.read()
-        if ret:
-            # Convert frame to RGB
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if not self.received_image:
+            ret, frame = self.vid.read()
+            if ret:
+                # Convert frame to RGB
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Crop and resize frame to maintain aspect ratio
-            frame = self.crop_and_resize_frame(frame)
+                # Crop and resize frame to maintain aspect ratio
+                frame = self.crop_and_resize_frame(frame)
 
-            # Convert the frame to a PhotoImage
-            img = Image.fromarray(frame)
-            imgtk = ImageTk.PhotoImage(image=img)
-            # Update the canvas
-            self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
-            self.canvas.imgtk = imgtk
+                # Convert the frame to a PhotoImage
+                img = Image.fromarray(frame)
+                imgtk = ImageTk.PhotoImage(image=img)
+                # Update the canvas
+                self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+                self.canvas.imgtk = imgtk
+                img.save("./my_model/captured_image.jpg", "JPEG")
+        else:
+            self.frame_counter += 1
+            if self.frame_counter > 100:
+                self.received_image = False
+                self.frame_counter = 0
+            # Show a static image
+            static_image_path = "./try_on/response.jpg"
+            if os.path.exists(static_image_path):
+                img = Image.open(static_image_path)
+                imgtk = ImageTk.PhotoImage(image=img)
+                self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+                self.canvas.imgtk = imgtk
+            else:
+                print(f"Static image not found at {static_image_path}")
 
         self.root.after(10, self.update_video)
 
@@ -146,9 +168,93 @@ class CameraApp:
     def button_action(self):
         print("Button clicked")
 
+    def show_try_on(self):
+        res = try_on.invoke_image()
+        self.received_image = True
+
+
+    def show_image_list(self):
+        # Create a new window for the image list
+        image_window = tk.Toplevel(self.root)
+        image_window.title("My Wardrobe")
+        image_window.geometry("800x600")  # Size of the image window
+
+        # Create a frame for scrolling images
+        frame = tk.Frame(image_window)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create a canvas and scrollbar for image scrolling
+        canvas = tk.Canvas(frame, bg='black')
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Create an image container frame inside the canvas
+        image_container = tk.Frame(canvas, bg='black')
+        canvas.create_window((0, 0), window=image_container, anchor="nw")
+
+        # Load images from folder
+        image_folder = 'my_wardrobe'  # Change this to the path of your image folder
+        images = [f for f in os.listdir(image_folder) if os.path.isfile(os.path.join(image_folder, f))]
+
+        # Define image size and padding
+        image_size = (150, 150)
+        padding = 10
+        columns = 5  # Number of images per row
+
+        x = padding
+        y = padding
+
+        for idx, image_file in enumerate(images):
+            image_path = os.path.join(image_folder, image_file)
+            img = Image.open(image_path).resize(image_size)  # Resize images as needed
+            img_tk = ImageTk.PhotoImage(img)
+
+            # Create a clickable label for each image
+            label = tk.Label(image_container, image=img_tk, bg='black')
+            label.image = img_tk  # Keep a reference to avoid garbage collection
+            label.grid(row=idx // columns, column=idx % columns, padx=padding, pady=padding)
+
+            # Bind the label click event
+            label.bind("<Button-1>", lambda e, path=image_path: self.show_image_popup(path))
+
+        # Update scroll region
+        image_container.update_idletasks()
+        canvas.config(scrollregion=canvas.bbox("all"))
+
+    def show_image_popup(self, image_path):
+        # Create a popup window with actions
+        popup = tk.Toplevel(self.root)
+        popup.title("Image Actions")
+        popup.geometry("300x200")
+
+        # Load the selected image
+        img = Image.open(image_path)
+        img_tk = ImageTk.PhotoImage(img.resize((150, 150)))  # Resize for display
+
+        # Display the selected image in the popup
+        img_label = tk.Label(popup, image=img_tk)
+        img_label.image = img_tk  # Keep a reference to avoid garbage collection
+        img_label.pack()
+
+        # Add action buttons
+        actions_frame = tk.Frame(popup)
+        actions_frame.pack(pady=10)
+
+        tk.Button(actions_frame, text="Action 1", command=lambda: self.perform_action("Action 1", image_path)).pack(
+            pady=5)
+        tk.Button(actions_frame, text="Action 2", command=lambda: self.perform_action("Action 2", image_path)).pack(
+            pady=5)
+        tk.Button(actions_frame, text="Action 3", command=lambda: self.perform_action("Action 3", image_path)).pack(
+            pady=5)
+
+    def perform_action(self, action, image_path):
+        # Example action handler
+        messagebox.showinfo("Action Performed", f"You selected {action} for {os.path.basename(image_path)}")
+
     def __del__(self):
         self.vid.release()
-
 
 if __name__ == "__main__":
     root = tk.Tk()
